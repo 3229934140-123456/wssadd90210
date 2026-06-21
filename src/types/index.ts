@@ -74,6 +74,7 @@ export interface TransferRecord {
   reason: string;
   status: TransferStatus;
   approver?: string;
+  rejectReason?: string;
   createdAt: string;
   approvedAt?: string;
   chatSummarySnapshot: string;
@@ -163,7 +164,7 @@ export interface Message {
   timestamp: string;
 }
 
-export type ExportType = 'reports' | 'clues' | 'customers';
+export type ExportType = 'reports' | 'clues' | 'customers' | 'records';
 export type ExportStatus = 'pending' | 'approved' | 'rejected';
 
 export interface ExportRequest {

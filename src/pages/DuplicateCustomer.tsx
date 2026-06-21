@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 
 export default function DuplicateCustomer() {
-  const { customers, searchCustomers, getDuplicateCustomers, mergeCustomers } = useCustomerStore();
+  const { customers, searchCustomers, getDuplicateCustomers, mergeCustomers, getCustomerClueCount } = useCustomerStore();
   const { clues } = useClueStore();
   const [searchKeyword, setSearchKeyword] = useState('');
   const [showMergeModal, setShowMergeModal] = useState(false);
@@ -50,10 +50,7 @@ export default function DuplicateCustomer() {
   };
 
   const getClueCount = (customer: Customer) => {
-    const duplicateOf = duplicateGroups.find(g => g.primary.id === customer.id || g.duplicates.some(d => d.id === customer.id));
-    if (!duplicateOf) return getCustomerClues(customer.id).length;
-    const allIds = [duplicateOf.primary.id, ...duplicateOf.duplicates.map(d => d.id)];
-    return clues.filter(c => allIds.includes(c.customerId)).length;
+    return getCustomerClueCount(customer.id);
   };
 
   const handleMerge = (primaryId: string, duplicateId: string) => {

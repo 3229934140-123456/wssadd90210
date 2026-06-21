@@ -128,37 +128,43 @@ export default function CluePool() {
       return;
     }
 
+    const firstClue = pendingClues[0];
+    const rule = getRuleByCityAndProject(firstClue.customer.city, firstClue.project);
+
+    const sameCityStores = stores.filter(s => s.city === firstClue.customer.city);
+    if (sameCityStores.length === 0) {
+      alert(`${firstClue.customer.city}暂无可用门店`);
+      return;
+    }
+    const cityCenterLat = sameCityStores.reduce((s, x) => s + x.lat, 0) / sameCityStores.length;
+    const cityCenterLng = sameCityStores.reduce((s, x) => s + x.lng, 0) / sameCityStores.length;
+
     const allRecommendations: RecommendedStore[] = [];
 
-    pendingClues.slice(0, 1).forEach(clue => {
-      const rule = getRuleByCityAndProject(clue.customer.city, clue.project);
-      const radius = rule?.autoAssignRadius || 10;
+    sameCityStores.forEach(store => {
+      const distance = calculateDistance(cityCenterLat, cityCenterLng, store.lat, store.lng);
+      const saturation = getStoreSaturation(store.id);
 
-      stores.forEach(store => {
-        if (store.city !== clue.customer.city) return;
-        const distance = calculateDistance(0, 0, 0, 0) + Math.random() * radius;
-        const saturation = getStoreSaturation(store.id);
+      let reason = '';
+      const isDefault = rule?.defaultStoreId === store.id;
+      if (isDefault) {
+        reason = '总部规则指定默认门店';
+      } else if (distance < 2) {
+        reason = '距离顾客位置最近';
+      } else if (saturation < 50) {
+        reason = '门店饱和度低，承接能力强';
+      } else {
+        reason = `${firstClue.customer.city}同城门店`;
+      }
 
-        let reason = '';
-        if (rule && store.id === rule.defaultStoreId) {
-          reason = '规则指定默认门店';
-        } else if (distance < 3) {
-          reason = '距离最近';
-        } else if (saturation < 50) {
-          reason = '门店饱和度低，承接能力强';
-        } else {
-          reason = '同城市门店';
-        }
-
-        allRecommendations.push({
-          id: store.id,
-          name: store.name,
-          city: store.city,
-          distance: Math.round(distance * 10) / 10,
-          saturation,
-          reason,
-          isDefault: rule?.defaultStoreId === store.id,
-        });
+      allRecommendations.push({
+        id: store.id,
+        name: store.name,
+        city: store.city,
+        distance: Math.max(0.1, Math.round(distance * 10) / 10),
+        saturation,
+        reason,
+        isDefault: !!isDefault,
       });
     });
 
@@ -166,7 +172,8 @@ export default function CluePool() {
       .sort((a, b) => {
         if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1;
         if (a.distance !== b.distance) return a.distance - b.distance;
-        return a.saturation - b.saturation;
+        if (a.saturation !== b.saturation) return a.saturation - b.saturation;
+        return a.name.localeCompare(b.name);
       })
       .slice(0, 5);
 

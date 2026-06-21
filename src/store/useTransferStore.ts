@@ -79,7 +79,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
               status: 'rejected' as TransferStatus,
               approver,
               approvedAt: new Date().toISOString(),
-              reason: rejectReason || t.reason,
+              rejectReason: rejectReason,
             }
           : t
       ),

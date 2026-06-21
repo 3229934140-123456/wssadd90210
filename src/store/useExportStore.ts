@@ -30,6 +30,10 @@ const EXPORT_RULES: Record<ExportType, { roles: string[]; requireApproval: strin
     roles: ['admin'],
     requireApproval: [],
   },
+  records: {
+    roles: ['admin', 'storeManager'],
+    requireApproval: ['storeManager'],
+  },
 };
 
 export const useExportStore = create<ExportState>((set, get) => ({

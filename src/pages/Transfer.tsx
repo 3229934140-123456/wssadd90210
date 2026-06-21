@@ -7,7 +7,9 @@ import { Button } from '@/components/common/Button';
 import { Modal } from '@/components/common/Modal';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useTransferStore } from '@/store/useTransferStore';
+import { useExportStore } from '@/store/useExportStore';
 import { formatDateTime, formatPhone } from '@/utils/format';
+import type { ExportType } from '@/types';
 import {
   ArrowRightLeft,
   ChevronDown,
@@ -20,16 +22,25 @@ import {
   Stethoscope,
   Wrench,
   Shield,
+  Lock,
+  BarChart3,
+  History,
 } from 'lucide-react';
 
 export default function Transfer() {
   const { hasPermission, user } = useAuthStore();
-  const { transfers, approveTransfer, rejectTransfer, getPendingCount } = useTransferStore();
+  const { transfers, approveTransfer, rejectTransfer } = useTransferStore();
+  const { canExport, requestExport } = useExportStore();
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedTransferId, setSelectedTransferId] = useState('');
   const [rejectReason, setRejectReason] = useState('');
+
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [exportReason, setExportReason] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const canApprove = hasPermission(['admin', 'storeManager']);
   const storeId = user?.storeId;
@@ -75,7 +86,7 @@ export default function Transfer() {
       subtitle={`待审批 ${pendingTransfers.length} 条转派申请`}
       actions={
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={() => setShowExportModal(true)}>
             <FileText size={14} className="mr-1" />
             导出记录
           </Button>
@@ -259,15 +270,41 @@ export default function Transfer() {
                           </div>
 
                           {transfer.status !== 'pending' && (
-                            <div className="mt-4 pt-4 border-t border-gray-200 px-2">
-                              <div className="flex items-center justify-between">
+                            <div className="mt-4 pt-4 border-t border-gray-200 px-2 space-y-3">
+                              <div className="flex items-start gap-2">
+                                <div className="w-5 h-5 rounded-full bg-teal-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                  <FileText size={11} className="text-teal-600" />
+                                </div>
                                 <div className="text-sm">
-                                  <span className="text-gray-500">转派原因：</span>
+                                  <span className="text-gray-500 font-medium">申请原因：</span>
                                   <span className="text-gray-700">{transfer.reason}</span>
                                 </div>
-                                <div className="text-xs text-gray-500">
-                                  {transfer.status === 'approved' ? '审批通过' : '审批驳回'} · 审批人：{transfer.approver} · {formatDateTime(transfer.approvedAt || '')}
+                              </div>
+
+                              {transfer.status === 'rejected' && transfer.rejectReason && (
+                                <div className="flex items-start gap-2">
+                                  <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <X size={11} className="text-red-600" />
+                                  </div>
+                                  <div className="text-sm">
+                                    <span className="text-gray-500 font-medium">驳回原因：</span>
+                                    <span className="text-red-700">{transfer.rejectReason}</span>
+                                  </div>
                                 </div>
+                              )}
+
+                              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                                <div className="text-xs text-gray-500 flex items-center gap-3">
+                                  <span>
+                                    <User size={11} className="inline mr-1" />
+                                    审批人：<span className="font-medium text-gray-700">{transfer.approver}</span>
+                                  </span>
+                                  <span>
+                                    <MessageSquare size={11} className="inline mr-1" />
+                                    审批时间：<span className="font-medium text-gray-700">{formatDateTime(transfer.approvedAt || '')}</span>
+                                  </span>
+                                </div>
+                                <StatusTag status={transfer.status} />
                               </div>
                             </div>
                           )}
@@ -318,6 +355,154 @@ export default function Transfer() {
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500 resize-none"
             />
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        title="导出转派记录"
+        size="md"
+      >
+        {(() => {
+          const recordsPermission = canExport('records', user?.role);
+          const reportsPermission = canExport('reports', user?.role);
+
+          const handleExport = (type: ExportType, perm: { canExport: boolean; requireApproval: boolean; reason: string }) => {
+            if (!perm.canExport) {
+              alert(perm.reason);
+              return;
+            }
+            if (perm.requireApproval && !exportReason.trim()) {
+              alert('请填写导出原因');
+              return;
+            }
+            const result = requestExport({
+              type,
+              reason: exportReason || '导出转派记录用于存档',
+              requesterName: user?.name || '用户',
+              requesterRole: user?.role || 'consultant',
+              storeId: user?.storeId,
+            });
+            if (result.approved) {
+              setSuccessMessage('导出成功！已按数据安全规范对客户手机号、聊天内容等敏感字段进行脱敏处理');
+            } else {
+              setSuccessMessage('已提交导出申请，请等待总部审批后下载');
+            }
+            setShowExportModal(false);
+            setShowSuccessModal(true);
+            setExportReason('');
+          };
+
+          return (
+            <div className="space-y-4">
+              <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg flex items-start gap-2">
+                <Shield size={18} className="text-teal-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-teal-700">
+                  <p className="font-medium">数据安全提示</p>
+                  <p className="mt-0.5">转派记录涉及客户手机号、聊天内容等敏感信息，门店角色需总部审批</p>
+                </div>
+              </div>
+
+              {!recordsPermission.canExport && !reportsPermission.canExport && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600 flex items-center gap-2">
+                  <Lock size={14} />
+                  {recordsPermission.reason}
+                </div>
+              )}
+
+              {(recordsPermission.canExport || reportsPermission.canExport) && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">导出类型</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => handleExport('records', recordsPermission)}
+                        disabled={!recordsPermission.canExport}
+                        className={`p-4 rounded-lg border text-left transition-all ${
+                          recordsPermission.canExport
+                            ? 'border-gray-200 hover:border-teal-400 hover:bg-teal-50/50'
+                            : 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
+                        }`}
+                      >
+                        <History size={20} className="text-teal-600 mb-2" />
+                        <div className="text-sm font-medium text-gray-900">转派记录明细</div>
+                        <div className="text-[11px] text-gray-500 mt-0.5">含客户信息、申请原因等</div>
+                        {recordsPermission.requireApproval && recordsPermission.canExport && (
+                          <div className="mt-2 flex items-center gap-1 text-[10px] text-amber-600">
+                            <Lock size={10} />需审批
+                          </div>
+                        )}
+                        {!recordsPermission.canExport && (
+                          <div className="mt-2 flex items-center gap-1 text-[10px] text-red-500">
+                            <Lock size={10} />无权限
+                          </div>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => handleExport('reports', reportsPermission)}
+                        disabled={!reportsPermission.canExport}
+                        className={`p-4 rounded-lg border text-left transition-all ${
+                          reportsPermission.canExport
+                            ? 'border-gray-200 hover:border-teal-400 hover:bg-teal-50/50'
+                            : 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
+                        }`}
+                      >
+                        <BarChart3 size={20} className="text-teal-600 mb-2" />
+                        <div className="text-sm font-medium text-gray-900">转派统计报表</div>
+                        <div className="text-[11px] text-gray-500 mt-0.5">按门店/月份统计汇总</div>
+                        {reportsPermission.requireApproval && reportsPermission.canExport && (
+                          <div className="mt-2 flex items-center gap-1 text-[10px] text-amber-600">
+                            <Lock size={10} />需审批
+                          </div>
+                        )}
+                        {!reportsPermission.canExport && (
+                          <div className="mt-2 flex items-center gap-1 text-[10px] text-red-500">
+                            <Lock size={10} />无权限
+                          </div>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {(recordsPermission.requireApproval || reportsPermission.requireApproval) && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">导出原因（申请必填）</label>
+                      <textarea
+                        value={exportReason}
+                        onChange={e => setExportReason(e.target.value)}
+                        rows={3}
+                        placeholder="请详细说明导出用途和使用范围，如：2026年6月转派记录存档..."
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 resize-none"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                <Button variant="outline" onClick={() => setShowExportModal(false)}>取消</Button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      <Modal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        title="操作成功"
+        size="sm"
+        footer={
+          <Button onClick={() => setShowSuccessModal(false)}>确定</Button>
+        }
+      >
+        <div className="flex items-center gap-3 py-3">
+          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+            <Check size={24} className="text-emerald-600" />
+          </div>
+          <p className="text-sm text-gray-700">{successMessage}</p>
         </div>
       </Modal>
     </PageContainer>
