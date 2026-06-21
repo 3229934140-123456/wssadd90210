@@ -27,6 +27,7 @@ interface TransferState {
   }) => void;
   approveTransfer: (transferId: string, approver: string, approverRole?: string, note?: string) => void;
   rejectTransfer: (transferId: string, approver: string, rejectReason: string, approverRole?: string) => void;
+  reapplyTransfer: (transferId: string, newReason: string, operator: string, operatorRole?: string) => void;
   addTimelineEvent: (transferId: string, event: Omit<TransferTimeline, 'id' | 'timestamp'>) => void;
   getPendingTransfers: (storeId?: string) => TransferRecord[];
   getHistoryTransfers: (storeId?: string) => TransferRecord[];
@@ -159,6 +160,41 @@ export const useTransferStore = create<TransferState>((set, get) => ({
     }));
 
     useClueStore.getState().updateClue(transfer.clueId, { status: 'pending' });
+  },
+
+  reapplyTransfer: (transferId, newReason, operator, operatorRole = 'storeManager') => {
+    const transfer = get().transfers.find(t => t.id === transferId);
+    if (!transfer || transfer.status !== 'rejected') return;
+
+    const fromStore = transfer.fromStoreId ? useStoreStore.getState().getStoreById(transfer.fromStoreId) : undefined;
+
+    const timelineEvent = makeTimeline(
+      'reapply',
+      '重新发起转派',
+      operator,
+      operatorRole,
+      transfer.fromStoreId,
+      fromStore?.name || transfer.fromStoreName,
+      newReason
+    );
+
+    set(state => ({
+      transfers: state.transfers.map(t =>
+        t.id === transferId
+          ? {
+              ...t,
+              status: 'pending' as TransferStatus,
+              reason: newReason,
+              approver: undefined,
+              rejectReason: undefined,
+              approvedAt: undefined,
+              timeline: [...t.timeline, timelineEvent],
+            }
+          : t
+      ),
+    }));
+
+    useClueStore.getState().updateClue(transfer.clueId, { status: 'transferring' });
   },
 
   addTimelineEvent: (transferId, event) => {

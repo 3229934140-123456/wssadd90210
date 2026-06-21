@@ -10,6 +10,7 @@ import { useStoreStore } from '@/store/useStoreStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAppointmentStore } from '@/store/useAppointmentStore';
 import { useTransferStore } from '@/store/useTransferStore';
+import { useCustomerStore } from '@/store/useCustomerStore';
 import { mockMessages, mockDoctors } from '@/mock';
 import { formatPhone, formatDateTime, timeAgo } from '@/utils/format';
 import type { AppointmentType, AppointmentTimeSlot } from '@/types';
@@ -31,6 +32,11 @@ import {
   Check,
   X,
   Store,
+  Shield,
+  GitBranch,
+  CalendarDays,
+  Link,
+  Layers,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -42,6 +48,7 @@ export default function ClueDetail() {
   const { user, hasPermission } = useAuthStore();
   const { createAppointment } = useAppointmentStore();
   const { createTransfer } = useTransferStore();
+  const { getCustomerArchive, getEffectiveCustomerId } = useCustomerStore();
   const [showScheduleDrawer, setShowScheduleDrawer] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
@@ -58,6 +65,9 @@ export default function ClueDetail() {
 
   const clue = getClueById(id || '');
   const store = clue ? getStoreById(clue.storeId) : null;
+  const customerArchive = clue ? getCustomerArchive(clue.customerId) : null;
+
+  const sourceLabel = (p: string) => p === 'meituan' ? '美团' : p === 'xinyang' ? '新氧' : p;
 
   if (!clue) {
     return (
@@ -218,6 +228,100 @@ export default function ClueDetail() {
               </div>
             </Card.Body>
           </Card>
+
+          {customerArchive && customerArchive.duplicateIds.length > 0 && (
+            <Card>
+              <Card.Header>
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Shield size={16} className="text-teal-600" />
+                  合并档案
+                  <span className="text-xs font-normal text-gray-400 ml-1">
+                    已聚合 {customerArchive.allCustomerIds.length} 条客户记录
+                  </span>
+                </h3>
+              </Card.Header>
+              <Card.Body>
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-xs text-gray-500">来源平台</span>
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {customerArchive.sources.map(s => (
+                        <span key={s} className={`px-2 py-0.5 text-xs font-medium rounded ${
+                          s === 'meituan' ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' : 'bg-pink-50 text-pink-700 border border-pink-200'
+                        }`}>
+                          {sourceLabel(s)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100">
+                    <div className="text-center p-2 bg-gray-50 rounded-md">
+                      <FileText size={14} className="text-teal-600 mx-auto mb-1" />
+                      <p className="text-lg font-semibold text-gray-900">{customerArchive.clueCount}</p>
+                      <p className="text-[10px] text-gray-500">线索</p>
+                    </div>
+                    <div className="text-center p-2 bg-gray-50 rounded-md">
+                      <GitBranch size={14} className="text-amber-600 mx-auto mb-1" />
+                      <p className="text-lg font-semibold text-gray-900">{customerArchive.transferCount}</p>
+                      <p className="text-[10px] text-gray-500">转派</p>
+                    </div>
+                    <div className="text-center p-2 bg-gray-50 rounded-md">
+                      <CalendarDays size={14} className="text-emerald-600 mx-auto mb-1" />
+                      <p className="text-lg font-semibold text-gray-900">{customerArchive.appointmentCount}</p>
+                      <p className="text-[10px] text-gray-500">预约</p>
+                    </div>
+                  </div>
+
+                  {customerArchive.clues.length > 1 && (
+                    <div className="pt-2 border-t border-gray-100">
+                      <span className="text-xs text-gray-500 block mb-1.5">关联线索</span>
+                      {customerArchive.clues.slice(0, 5).map(c => (
+                        <div key={c.id} className="flex items-center gap-2 text-xs py-1 border-b border-gray-50 last:border-0">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                            c.customer.sourcePlatform === 'meituan' ? 'bg-yellow-50 text-yellow-700' : 'bg-pink-50 text-pink-700'
+                          }`}>
+                            {sourceLabel(c.customer.sourcePlatform)}
+                          </span>
+                          <span className="text-gray-700">{c.project}</span>
+                          <span className="text-gray-400 ml-auto">{c.customer.city}</span>
+                        </div>
+                      ))}
+                      {customerArchive.clues.length > 5 && (
+                        <div className="text-xs text-gray-400 pt-1">还有 {customerArchive.clues.length - 5} 条...</div>
+                      )}
+                    </div>
+                  )}
+
+                  {customerArchive.transfers.length > 0 && (
+                    <div className="pt-2 border-t border-gray-100">
+                      <span className="text-xs text-gray-500 block mb-1.5">转派记录</span>
+                      {customerArchive.transfers.slice(0, 3).map(t => (
+                        <div key={t.id} className="flex items-center gap-2 text-xs py-1 border-b border-gray-50 last:border-0">
+                          <GitBranch size={10} className="text-amber-500" />
+                          <span className="text-gray-600">{t.fromStoreName} → {t.toStoreName}</span>
+                          <StatusTag status={t.status} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {customerArchive.appointments.length > 0 && (
+                    <div className="pt-2 border-t border-gray-100">
+                      <span className="text-xs text-gray-500 block mb-1.5">预约记录</span>
+                      {customerArchive.appointments.slice(0, 3).map(a => (
+                        <div key={a.id} className="flex items-center gap-2 text-xs py-1 border-b border-gray-50 last:border-0">
+                          <CalendarDays size={10} className="text-emerald-500" />
+                          <span className="text-gray-600">{a.doctorName} {a.date} {a.timeSlot}</span>
+                          <StatusTag status={a.status} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Card.Body>
+            </Card>
+          )}
 
           <Card>
             <Card.Header>

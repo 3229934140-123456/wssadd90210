@@ -37,7 +37,7 @@ const typeLabels: Record<string, string> = {
 
 export default function ExportHistory() {
   const { user, hasPermission } = useAuthStore();
-  const { requests, approveExport, rejectExport, pendingRequests } = useExportStore();
+  const { requests, approveExport, rejectExport, pendingRequests, recordDownload } = useExportStore();
   const { stores } = useStoreStore();
   const isAdmin = hasPermission(['admin']);
 
@@ -109,7 +109,8 @@ export default function ExportHistory() {
 
   const handleDownload = (req: ExportRequest) => {
     if (req.status !== 'approved') return;
-    setSuccessMessage(`正在下载【${typeLabels[req.type] || req.type}】，敏感字段已按规范脱敏处理`);
+    recordDownload(req.id, user?.name || '用户');
+    setSuccessMessage(`正在下载【${typeLabels[req.type] || req.type}】，敏感字段已按规范脱敏处理，下载记录已保存至审计日志`);
     setShowSuccessModal(true);
   };
 
@@ -378,6 +379,19 @@ export default function ExportHistory() {
                                     <span className="text-teal-700 bg-teal-50 border border-teal-100 px-2 py-1 rounded">
                                       已按数据安全规范对手机号、聊天内容等敏感字段脱敏处理
                                     </span>
+                                  </div>
+                                )}
+                                {req.downloadRecords && req.downloadRecords.length > 0 && (
+                                  <div className="mt-2 pt-2 border-t border-gray-100">
+                                    <span className="text-gray-500 w-20 flex-shrink-0 block mb-1.5">下载审计记录：</span>
+                                    {req.downloadRecords.map(dl => (
+                                      <div key={dl.id} className="flex items-center gap-2 text-[11px] bg-gray-50 p-1.5 rounded mb-1">
+                                        <Download size={10} className="text-teal-600" />
+                                        <span className="text-gray-700">{dl.downloadedBy}</span>
+                                        <span className="text-gray-400">{formatDateTime(dl.downloadedAt)}</span>
+                                        <span className="text-teal-600 ml-auto">{dl.desensitizationNote}</span>
+                                      </div>
+                                    ))}
                                   </div>
                                 )}
                               </div>

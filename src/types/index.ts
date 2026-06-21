@@ -194,4 +194,12 @@ export interface ExportRequest {
   rejectReason?: string;
   createdAt: string;
   approved: boolean;
+  downloadRecords?: ExportDownloadRecord[];
+}
+
+export interface ExportDownloadRecord {
+  id: string;
+  downloadedAt: string;
+  downloadedBy: string;
+  desensitizationNote: string;
 }

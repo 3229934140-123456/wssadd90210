@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { UserRole, ExportType, ExportStatus, ExportRequest } from '@/types';
+import type { UserRole, ExportType, ExportStatus, ExportRequest, ExportDownloadRecord } from '@/types';
 
 interface ExportState {
   requests: ExportRequest[];
@@ -14,6 +14,7 @@ interface ExportState {
   }) => ExportRequest;
   approveExport: (requestId: string, approver: string) => void;
   rejectExport: (requestId: string, approver: string, rejectReason: string) => void;
+  recordDownload: (requestId: string, downloadedBy: string) => void;
   getPendingRequests: (role?: string, storeId?: string) => ExportRequest[];
 }
 
@@ -116,6 +117,22 @@ export const useExportStore = create<ExportState>((set, get) => ({
         pendingRequests: newRequests.filter(r => r.status === 'pending'),
       };
     });
+  },
+
+  recordDownload: (requestId, downloadedBy) => {
+    const downloadRecord: ExportDownloadRecord = {
+      id: `dl${Date.now()}`,
+      downloadedAt: new Date().toISOString(),
+      downloadedBy,
+      desensitizationNote: '已按数据安全规范对手机号、聊天内容等敏感字段脱敏处理',
+    };
+    set(state => ({
+      requests: state.requests.map(r =>
+        r.id === requestId
+          ? { ...r, downloadRecords: [...(r.downloadRecords || []), downloadRecord] }
+          : r
+      ),
+    }));
   },
 
   getPendingRequests: (role, storeId) => {

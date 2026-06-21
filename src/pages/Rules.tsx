@@ -6,7 +6,7 @@ import { Button } from '@/components/common/Button';
 import { Modal } from '@/components/common/Modal';
 import { useRuleStore } from '@/store/useRuleStore';
 import { useStoreStore } from '@/store/useStoreStore';
-import { cities, projects } from '@/mock';
+import { cities, projects, businessDistricts } from '@/mock';
 import {
   Settings,
   Plus,
@@ -26,6 +26,8 @@ import {
   Eye,
   Layers,
   TrendingUp,
+  Navigation,
+  Crosshair,
 } from 'lucide-react';
 import type { Rule, Store } from '@/types';
 
@@ -60,6 +62,10 @@ export default function Rules() {
 
   const [simCity, setSimCity] = useState('北京');
   const [simProject, setSimProject] = useState('光子嫩肤');
+  const [simDistrictId, setSimDistrictId] = useState('');
+  const [simCustomLat, setSimCustomLat] = useState('');
+  const [simCustomLng, setSimCustomLng] = useState('');
+  const [simLocMode, setSimLocMode] = useState<'district' | 'custom'>('district');
 
   const handleAdd = () => {
     setEditingRule(null);
@@ -109,21 +115,42 @@ export default function Rules() {
     const sameCityStores = stores.filter(s => s.city === simCity);
     if (sameCityStores.length === 0) return [];
 
-    const centerLat = sameCityStores.reduce((s, x) => s + x.lat, 0) / sameCityStores.length;
-    const centerLng = sameCityStores.reduce((s, x) => s + x.lng, 0) / sameCityStores.length;
+    let custLat: number;
+    let custLng: number;
+
+    if (simLocMode === 'custom' && simCustomLat && simCustomLng) {
+      custLat = parseFloat(simCustomLat);
+      custLng = parseFloat(simCustomLng);
+      if (isNaN(custLat) || isNaN(custLng)) {
+        custLat = sameCityStores.reduce((s, x) => s + x.lat, 0) / sameCityStores.length;
+        custLng = sameCityStores.reduce((s, x) => s + x.lng, 0) / sameCityStores.length;
+      }
+    } else if (simDistrictId) {
+      const district = businessDistricts.find(d => d.id === simDistrictId);
+      if (district) {
+        custLat = district.lat;
+        custLng = district.lng;
+      } else {
+        custLat = sameCityStores.reduce((s, x) => s + x.lat, 0) / sameCityStores.length;
+        custLng = sameCityStores.reduce((s, x) => s + x.lng, 0) / sameCityStores.length;
+      }
+    } else {
+      custLat = sameCityStores.reduce((s, x) => s + x.lat, 0) / sameCityStores.length;
+      custLng = sameCityStores.reduce((s, x) => s + x.lng, 0) / sameCityStores.length;
+    }
 
     const mapped = sameCityStores.map(store => {
-      const distance = Math.max(0.1, Math.round(calculateDistance(centerLat, centerLng, store.lat, store.lng) * 10) / 10);
+      const distance = Math.max(0.1, Math.round(calculateDistance(custLat, custLng, store.lat, store.lng) * 10) / 10);
       const saturation = (store.id === 's1' ? 64 : store.id === 's2' ? 70 : store.id === 's3' ? 75 : store.id === 's4' ? 67 : store.id === 's5' ? 69 : 84) as number;
       const isDefault = rule?.defaultStoreId === store.id;
       let score = 0;
       const reasons: string[] = [];
       if (isDefault) { score += 100; reasons.push('总部规则指定默认门店'); }
       if (distance < 2) { score += 50; reasons.push('距离最近'); }
-      else if (distance < rule?.autoAssignRadius) { score += 30; reasons.push('在分配半径内'); }
+      else if (distance < (rule?.autoAssignRadius || 10)) { score += 30; reasons.push('在分配半径内'); }
       if (saturation < 50) { score += 30; reasons.push('饱和度低承接能力强'); }
       else if (saturation < 70) { score += 15; reasons.push('饱和度适中'); }
-      else { score += 0; reasons.push('饱和度较高'); }
+      else { reasons.push('饱和度较高'); }
 
       return {
         store,
@@ -136,9 +163,11 @@ export default function Rules() {
     });
 
     return mapped.sort((a, b) => b.score - a.score);
-  }, [simCity, simProject, stores, getRuleByCityAndProject]);
+  }, [simCity, simProject, simDistrictId, simCustomLat, simCustomLng, simLocMode, stores, getRuleByCityAndProject]);
 
   const matchedRule = getRuleByCityAndProject(simCity, simProject);
+
+  const cityDistricts = businessDistricts.filter(d => d.city === simCity);
 
   return (
     <PageContainer
@@ -264,49 +293,124 @@ export default function Rules() {
                 </div>
 
                 <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">顾客城市</label>
-                      <select
-                        value={simCity}
-                        onChange={e => setSimCity(e.target.value)}
-                        className="h-9 px-3 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
-                      >
-                        {cities.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">顾客城市</label>
+                        <select
+                          value={simCity}
+                          onChange={e => { setSimCity(e.target.value); setSimDistrictId(''); }}
+                          className="h-9 px-3 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+                        >
+                          {cities.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">意向项目</label>
+                        <select
+                          value={simProject}
+                          onChange={e => setSimProject(e.target.value)}
+                          className="h-9 px-3 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+                        >
+                          {projects.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex-1 flex items-end">
+                        {matchedRule ? (
+                          <div className="flex items-center gap-2 text-xs bg-teal-50 border border-teal-200 rounded-md px-3 py-2">
+                            <CheckCircle size={14} className="text-teal-600" />
+                            <span className="text-teal-800">
+                              命中规则：
+                              <span className="font-medium">{matchedRule.defaultStoreName}</span>
+                              为默认门店
+                              <span className="mx-1.5 text-teal-500">·</span>
+                              分配半径 {matchedRule.autoAssignRadius}km
+                              <span className="mx-1.5 text-teal-500">·</span>
+                              响应 {matchedRule.responseTimeLimit}分钟
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                            <Eye size={14} className="text-amber-600" />
+                            <span className="text-amber-800">
+                              该城市/项目未配置规则，将按距离和饱和度推荐
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">意向项目</label>
-                      <select
-                        value={simProject}
-                        onChange={e => setSimProject(e.target.value)}
-                        className="h-9 px-3 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
-                      >
-                        {projects.map(p => <option key={p} value={p}>{p}</option>)}
-                      </select>
-                    </div>
-                    <div className="flex-1 flex items-end">
-                      {matchedRule ? (
-                        <div className="flex items-center gap-2 text-xs bg-teal-50 border border-teal-200 rounded-md px-3 py-2">
-                          <CheckCircle size={14} className="text-teal-600" />
-                          <span className="text-teal-800">
-                            命中规则：
-                            <span className="font-medium">{matchedRule.defaultStoreName}</span>
-                            为默认门店
-                            <span className="mx-1.5 text-teal-500">·</span>
-                            分配半径 {matchedRule.autoAssignRadius}km
-                            <span className="mx-1.5 text-teal-500">·</span>
-                            响应 {matchedRule.responseTimeLimit}分钟
-                          </span>
+
+                    <div className="border-t border-gray-200 pt-3">
+                      <label className="block text-xs text-gray-500 mb-2 flex items-center gap-1">
+                        <Navigation size={12} />
+                        顾客位置（距离以此计算）
+                      </label>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setSimLocMode('district')}
+                            className={`px-3 py-1.5 text-xs rounded-md border transition-all ${
+                              simLocMode === 'district'
+                                ? 'bg-teal-50 border-teal-300 text-teal-700 font-medium'
+                                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            <Building2 size={12} className="inline mr-1" />
+                            选择商圈
+                          </button>
+                          <button
+                            onClick={() => setSimLocMode('custom')}
+                            className={`px-3 py-1.5 text-xs rounded-md border transition-all ${
+                              simLocMode === 'custom'
+                                ? 'bg-teal-50 border-teal-300 text-teal-700 font-medium'
+                                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            <Crosshair size={12} className="inline mr-1" />
+                            手动坐标
+                          </button>
                         </div>
-                      ) : (
-                        <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                          <Eye size={14} className="text-amber-600" />
-                          <span className="text-amber-800">
-                            该城市/项目未配置规则，将按距离和饱和度推荐
-                          </span>
-                        </div>
-                      )}
+
+                        {simLocMode === 'district' && (
+                          <select
+                            value={simDistrictId}
+                            onChange={e => setSimDistrictId(e.target.value)}
+                            className="h-9 px-3 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+                          >
+                            <option value="">城市中心（默认）</option>
+                            {cityDistricts.map(d => (
+                              <option key={d.id} value={d.id}>{d.name}（{d.lat}, {d.lng}）</option>
+                            ))}
+                          </select>
+                        )}
+
+                        {simLocMode === 'custom' && (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="纬度 (lat)"
+                              value={simCustomLat}
+                              onChange={e => setSimCustomLat(e.target.value)}
+                              className="h-9 w-28 px-3 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+                            />
+                            <input
+                              type="text"
+                              placeholder="经度 (lng)"
+                              value={simCustomLng}
+                              onChange={e => setSimCustomLng(e.target.value)}
+                              className="h-9 w-28 px-3 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+                            />
+                            {simCustomLat && simCustomLng && (
+                              <span className="text-[10px] text-gray-400">
+                                {isNaN(parseFloat(simCustomLat)) || isNaN(parseFloat(simCustomLng))
+                                  ? '坐标格式有误'
+                                  : `已定位 ${simCustomLat}, ${simCustomLng}`
+                                }
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

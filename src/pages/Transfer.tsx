@@ -32,11 +32,12 @@ import {
   Search,
   Building2,
   CircleDot,
+  AlertCircle,
 } from 'lucide-react';
 
 export default function Transfer() {
   const { hasPermission, user } = useAuthStore();
-  const { transfers, approveTransfer, rejectTransfer, filterTransfers } = useTransferStore();
+  const { transfers, approveTransfer, rejectTransfer, filterTransfers, reapplyTransfer } = useTransferStore();
   const { canExport, requestExport } = useExportStore();
   const { stores } = useStoreStore();
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
@@ -44,6 +45,9 @@ export default function Transfer() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedTransferId, setSelectedTransferId] = useState('');
   const [rejectReason, setRejectReason] = useState('');
+
+  const [showReapplyModal, setShowReapplyModal] = useState(false);
+  const [reapplyReason, setReapplyReason] = useState('');
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -107,6 +111,24 @@ export default function Transfer() {
     rejectTransfer(selectedTransferId, user?.name || '审批人', rejectReason);
     setShowRejectModal(false);
     setRejectReason('');
+  };
+
+  const handleReapply = (id: string) => {
+    setSelectedTransferId(id);
+    setReapplyReason('');
+    setShowReapplyModal(true);
+  };
+
+  const confirmReapply = () => {
+    if (!reapplyReason.trim()) {
+      alert('请填写新的申请原因');
+      return;
+    }
+    reapplyTransfer(selectedTransferId, reapplyReason, user?.name || '申请人');
+    setShowReapplyModal(false);
+    setReapplyReason('');
+    setSuccessMessage('已重新发起转派申请，等待审批');
+    setShowSuccessModal(true);
   };
 
   return (
@@ -315,6 +337,21 @@ export default function Transfer() {
                           </div>
                         </Table.Cell>
                       )}
+                      {activeTab === 'history' && transfer.status === 'rejected' && (
+                        <Table.Cell className="text-right">
+                          <div onClick={e => e.stopPropagation()}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-teal-600 border-teal-200 hover:bg-teal-50"
+                              onClick={() => handleReapply(transfer.id)}
+                            >
+                              <ArrowRightLeft size={14} className="mr-0.5" />
+                              重新发起
+                            </Button>
+                          </div>
+                        </Table.Cell>
+                      )}
                     </Table.Row>
                     {expandedId === transfer.id && (
                       <Table.Row className="bg-gray-50">
@@ -513,6 +550,49 @@ export default function Transfer() {
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500 resize-none"
             />
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showReapplyModal}
+        onClose={() => setShowReapplyModal(false)}
+        title="重新发起转派"
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowReapplyModal(false)}>取消</Button>
+            <Button onClick={confirmReapply}>提交申请</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {(() => {
+            const t = transfers.find(x => x.id === selectedTransferId);
+            if (!t) return null;
+            return (
+              <div className="space-y-3">
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 space-y-1">
+                  <div className="font-medium flex items-center gap-1">
+                    <AlertCircle size={14} />
+                    上次申请被驳回
+                  </div>
+                  <div>原申请原因：{t.reason}</div>
+                  {t.rejectReason && <div>驳回原因：{t.rejectReason}（审批人：{t.approver}）</div>}
+                  <div className="text-amber-600 mt-1">请根据驳回原因调整申请理由后重新提交</div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">新的申请原因（必填）</label>
+                  <textarea
+                    value={reapplyReason}
+                    onChange={e => setReapplyReason(e.target.value)}
+                    rows={4}
+                    placeholder="请输入新的申请原因，说明为何需要重新转派..."
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 resize-none"
+                  />
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </Modal>
 

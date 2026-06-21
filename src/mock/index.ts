@@ -422,3 +422,21 @@ export const projects = [
 ];
 
 export const cities = ['北京', '上海', '广州', '深圳', '杭州', '成都', '南京', '武汉'];
+
+export const businessDistricts = [
+  { id: 'bd1', city: '北京', name: '国贸CBD', lat: 39.9087, lng: 116.4605 },
+  { id: 'bd2', city: '北京', name: '中关村', lat: 39.9842, lng: 116.3074 },
+  { id: 'bd3', city: '北京', name: '望京', lat: 40.0025, lng: 116.4745 },
+  { id: 'bd4', city: '北京', name: '三里屯', lat: 39.9337, lng: 116.4539 },
+  { id: 'bd5', city: '上海', name: '南京路', lat: 31.2357, lng: 121.4750 },
+  { id: 'bd6', city: '上海', name: '陆家嘴', lat: 31.2400, lng: 121.5000 },
+  { id: 'bd7', city: '上海', name: '徐家汇', lat: 31.1953, lng: 121.4366 },
+  { id: 'bd8', city: '广州', name: '天河城', lat: 23.1369, lng: 113.3250 },
+  { id: 'bd9', city: '广州', name: '珠江新城', lat: 23.1200, lng: 113.3250 },
+  { id: 'bd10', city: '深圳', name: '华强北', lat: 22.5470, lng: 114.0880 },
+  { id: 'bd11', city: '深圳', name: '后海', lat: 22.5170, lng: 113.9320 },
+  { id: 'bd12', city: '杭州', name: '武林广场', lat: 30.2780, lng: 120.1640 },
+  { id: 'bd13', city: '成都', name: '春熙路', lat: 30.6580, lng: 104.0810 },
+  { id: 'bd14', city: '南京', name: '新街口', lat: 32.0480, lng: 118.7780 },
+  { id: 'bd15', city: '武汉', name: '楚河汉街', lat: 30.5540, lng: 114.3560 },
+];
