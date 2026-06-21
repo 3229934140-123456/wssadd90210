@@ -62,6 +62,19 @@ export interface Store {
 }
 
 export type TransferStatus = 'pending' | 'approved' | 'rejected';
+export type TransferActionType = 'apply' | 'approve' | 'reject' | 'reapply' | 'export';
+
+export interface TransferTimeline {
+  id: string;
+  action: TransferActionType;
+  actionLabel: string;
+  operator: string;
+  operatorRole: string;
+  storeId?: string;
+  storeName?: string;
+  timestamp: string;
+  note?: string;
+}
 
 export interface TransferRecord {
   id: string;
@@ -79,6 +92,7 @@ export interface TransferRecord {
   approvedAt?: string;
   chatSummarySnapshot: string;
   preferencesSnapshot: string[];
+  timeline: TransferTimeline[];
 }
 
 export interface Doctor {

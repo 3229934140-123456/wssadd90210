@@ -1,11 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Card } from '@/components/common/Card';
 import { Table } from '@/components/common/Table';
 import { StatusTag } from '@/components/common/StatusTag';
 import { Button } from '@/components/common/Button';
 import { Modal } from '@/components/common/Modal';
-import { useCustomerStore } from '@/store/useCustomerStore';
+import { useCustomerStore, type CustomerArchive } from '@/store/useCustomerStore';
 import { useClueStore } from '@/store/useClueStore';
 import { formatPhone, formatDateTime } from '@/utils/format';
 import type { Customer, Clue } from '@/types';
@@ -22,28 +22,40 @@ import {
   X,
   Sparkles,
   Link,
+  User,
+  GitBranch,
+  CalendarDays,
+  Building2,
+  Shield,
 } from 'lucide-react';
 
 export default function DuplicateCustomer() {
-  const { customers, searchCustomers, getDuplicateCustomers, mergeCustomers, getCustomerClueCount } = useCustomerStore();
+  const { customers, searchCustomers, getDuplicateCustomers, mergeCustomers, getCustomerClueCount, getCustomerArchive } = useCustomerStore();
   const { clues } = useClueStore();
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [debouncedKeyword, setDebouncedKeyword] = useState('');
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [selectedPrimaryId, setSelectedPrimaryId] = useState('');
   const [selectedDuplicateId, setSelectedDuplicateId] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [mergedArchive, setMergedArchive] = useState<CustomerArchive | null>(null);
 
-  const duplicateGroups = getDuplicateCustomers();
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedKeyword(searchKeyword), 200);
+    return () => clearTimeout(t);
+  }, [searchKeyword]);
+
+  const duplicateGroups = useMemo(() => getDuplicateCustomers(), [getDuplicateCustomers()]);
 
   const filteredDuplicates = useMemo(() => {
-    if (!searchKeyword.trim()) {
+    if (!debouncedKeyword.trim()) {
       return duplicateGroups;
     }
-    const result = searchCustomers(searchKeyword.trim());
+    const result = searchCustomers(debouncedKeyword.trim());
     return duplicateGroups.filter(group =>
       result.some(r => group.primary.id === r.id || group.duplicates.some(d => d.id === r.id))
     );
-  }, [duplicateGroups, searchKeyword, searchCustomers]);
+  }, [duplicateGroups, debouncedKeyword, searchCustomers]);
 
   const getCustomerClues = (customerId: string) => {
     return clues.filter(c => c.customerId === customerId);
@@ -62,6 +74,8 @@ export default function DuplicateCustomer() {
   const confirmMerge = () => {
     if (!selectedPrimaryId || !selectedDuplicateId) return;
     mergeCustomers(selectedPrimaryId, selectedDuplicateId);
+    const archive = getCustomerArchive(selectedPrimaryId);
+    setMergedArchive(archive);
     setShowMergeModal(false);
     setShowSuccessModal(true);
   };
@@ -69,6 +83,8 @@ export default function DuplicateCustomer() {
   const findGroup = (customerId: string) => {
     return duplicateGroups.find(g => g.primary.id === customerId || g.duplicates.some(d => d.id === customerId));
   };
+
+  const sourceLabel = (p: string) => p === 'meituan' ? '美团' : p === 'xinyang' ? '新氧' : p;
 
   return (
     <PageContainer
@@ -385,19 +401,82 @@ export default function DuplicateCustomer() {
         isOpen={showSuccessModal}
         onClose={() => setShowSuccessModal(false)}
         title="合并成功"
-        size="sm"
+        size="lg"
         footer={
           <Button onClick={() => setShowSuccessModal(false)}>确定</Button>
         }
       >
-        <div className="flex items-center gap-3 py-3">
-          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
-            <Check size={24} className="text-emerald-600" />
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+              <Check size={24} className="text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900">客户档案合并成功</p>
+              <p className="text-xs text-gray-500 mt-0.5">所有关联线索、转派、预约已统一归集到主档案</p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-medium text-gray-900">客户档案合并成功</p>
-            <p className="text-xs text-gray-500 mt-0.5">关联线索和平台信息已同步到主档案</p>
-          </div>
+
+          {mergedArchive && (
+            <div className="space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <h4 className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                <Shield size={14} className="text-teal-600" />
+                合并后主档案摘要
+              </h4>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-gray-500">客户姓名：</span>
+                  <span className="text-gray-800 font-medium">{mergedArchive.customer.name}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">手机号：</span>
+                  <span className="text-gray-800 font-medium">{formatPhone(mergedArchive.customer.phone)}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">城市：</span>
+                  <span className="text-gray-800 font-medium">{mergedArchive.customer.city}</span>
+                </div>
+                <div className="flex items-start gap-1">
+                  <span className="text-gray-500 flex-shrink-0">来源平台：</span>
+                  <span className="flex flex-wrap gap-1">
+                    {mergedArchive.sources.map(p => (
+                      <span key={p} className={`px-1.5 py-0.5 rounded ${
+                        p === 'meituan' ? 'bg-yellow-50 text-yellow-700' : 'bg-pink-50 text-pink-700'
+                      }`}>
+                        {sourceLabel(p)}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 pt-2 border-t border-gray-200">
+                <div className="bg-white rounded-md p-2 border border-gray-100 text-center">
+                  <FileText size={16} className="text-teal-600 mx-auto mb-1" />
+                  <p className="text-lg font-semibold text-gray-900">{mergedArchive.clueCount}</p>
+                  <p className="text-[10px] text-gray-500">线索</p>
+                </div>
+                <div className="bg-white rounded-md p-2 border border-gray-100 text-center">
+                  <GitBranch size={16} className="text-amber-600 mx-auto mb-1" />
+                  <p className="text-lg font-semibold text-gray-900">{mergedArchive.transferCount}</p>
+                  <p className="text-[10px] text-gray-500">转派记录</p>
+                </div>
+                <div className="bg-white rounded-md p-2 border border-gray-100 text-center">
+                  <CalendarDays size={16} className="text-emerald-600 mx-auto mb-1" />
+                  <p className="text-lg font-semibold text-gray-900">{mergedArchive.appointmentCount}</p>
+                  <p className="text-[10px] text-gray-500">预约记录</p>
+                </div>
+              </div>
+
+              {mergedArchive.duplicateIds.length > 0 && (
+                <div className="text-[11px] text-gray-500 pt-2 border-t border-gray-200 flex items-center gap-1">
+                  <Link size={12} />
+                  合并了 {mergedArchive.duplicateIds.length} 条重复档案，当前页面已不再显示该组
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
     </PageContainer>

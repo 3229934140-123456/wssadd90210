@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Customer } from '@/types';
+import type { Customer, Clue, TransferRecord, Appointment } from '@/types';
 import { mockCustomers } from '@/mock';
 
 export interface DuplicateCustomerGroup {
@@ -7,6 +7,19 @@ export interface DuplicateCustomerGroup {
   primary: Customer;
   duplicates: Customer[];
   totalClueCount: number;
+}
+
+export interface CustomerArchive {
+  customer: Customer;
+  duplicateIds: string[];
+  allCustomerIds: string[];
+  sources: string[];
+  clues: Clue[];
+  transfers: TransferRecord[];
+  appointments: Appointment[];
+  clueCount: number;
+  transferCount: number;
+  appointmentCount: number;
 }
 
 interface CustomerState {
@@ -20,6 +33,7 @@ interface CustomerState {
   searchCustomers: (keyword: string) => Customer[];
   getCustomerClueCount: (customerId: string) => number;
   getEffectiveCustomerId: (customerId: string) => string;
+  getCustomerArchive: (customerId: string) => CustomerArchive | null;
 }
 
 export const useCustomerStore = create<CustomerState>((set, get) => ({
@@ -140,4 +154,43 @@ export const useCustomerStore = create<CustomerState>((set, get) => ({
       return clueEffId === effId;
     }).length;
   },
+
+  getCustomerArchive: (customerId) => {
+    const { customers, mergedMap, getEffectiveCustomerId } = get();
+    const effId = getEffectiveCustomerId(customerId);
+    const customer = customers.find(c => c.id === effId);
+    if (!customer) return null;
+
+    const allIds = [effId, ...Object.entries(mergedMap).filter(([, v]) => v === effId).map(([k]) => k)];
+    const duplicateIds = allIds.filter(id => id !== effId);
+
+    const { useClueStore } = require('@/store/useClueStore');
+    const { useTransferStore } = require('@/store/useTransferStore');
+    const { useAppointmentStore } = require('@/store/useAppointmentStore');
+
+    const allClues: Clue[] = useClueStore.getState().clues.filter((c: Clue) =>
+      allIds.includes(getEffectiveCustomerId(c.customerId))
+    );
+    const allTransfers: TransferRecord[] = useTransferStore.getState().transfers.filter((t: TransferRecord) =>
+      allIds.includes(getEffectiveCustomerId(t.clue.customerId))
+    );
+    const allAppointments: Appointment[] = useAppointmentStore.getState().appointments.filter((a: Appointment) =>
+      allClues.some(c => c.id === a.clueId)
+    );
+    const sources = [...new Set(customers.filter(c => allIds.includes(c.id)).map(c => c.sourcePlatform))];
+
+    return {
+      customer,
+      duplicateIds,
+      allCustomerIds: allIds,
+      sources,
+      clues: allClues,
+      transfers: allTransfers,
+      appointments: allAppointments,
+      clueCount: allClues.length,
+      transferCount: allTransfers.length,
+      appointmentCount: allAppointments.length,
+    };
+  },
 }));
+

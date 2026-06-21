@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Card } from '@/components/common/Card';
 import { Table } from '@/components/common/Table';
@@ -8,8 +8,9 @@ import { Modal } from '@/components/common/Modal';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useTransferStore } from '@/store/useTransferStore';
 import { useExportStore } from '@/store/useExportStore';
+import { useStoreStore } from '@/store/useStoreStore';
 import { formatDateTime, formatPhone } from '@/utils/format';
-import type { ExportType } from '@/types';
+import type { ExportType, TransferActionType } from '@/types';
 import {
   ArrowRightLeft,
   ChevronDown,
@@ -24,13 +25,20 @@ import {
   Shield,
   Lock,
   BarChart3,
-  History,
+  History as HistoryIcon,
+  Filter,
+  Clock,
+  MapPin,
+  Search,
+  Building2,
+  CircleDot,
 } from 'lucide-react';
 
 export default function Transfer() {
   const { hasPermission, user } = useAuthStore();
-  const { transfers, approveTransfer, rejectTransfer } = useTransferStore();
+  const { transfers, approveTransfer, rejectTransfer, filterTransfers } = useTransferStore();
   const { canExport, requestExport } = useExportStore();
+  const { stores } = useStoreStore();
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -42,18 +50,39 @@ export default function Transfer() {
   const [exportReason, setExportReason] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  const [filterStoreId, setFilterStoreId] = useState('');
+  const [filterOperator, setFilterOperator] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterAction, setFilterAction] = useState<TransferActionType | ''>('');
+
   const canApprove = hasPermission(['admin', 'storeManager']);
   const storeId = user?.storeId;
+  const isAdmin = hasPermission(['admin']);
 
-  const pendingTransfers = transfers.filter(t => {
+  const filtered = useMemo(() => {
+    let base = transfers;
+    if (filterStoreId || filterOperator || filterStartDate || filterEndDate || filterAction) {
+      base = filterTransfers({
+        storeId: filterStoreId || undefined,
+        operator: filterOperator || undefined,
+        startDate: filterStartDate || undefined,
+        endDate: filterEndDate || undefined,
+        action: filterAction || undefined,
+      });
+    }
+    return base;
+  }, [transfers, filterStoreId, filterOperator, filterStartDate, filterEndDate, filterAction, filterTransfers]);
+
+  const pendingTransfers = filtered.filter(t => {
     if (t.status !== 'pending') return false;
-    if (storeId && t.fromStoreId !== storeId && t.toStoreId !== storeId && !hasPermission(['admin'])) return false;
+    if (storeId && !isAdmin && t.fromStoreId !== storeId && t.toStoreId !== storeId) return false;
     return true;
   });
 
-  const historyTransfers = transfers.filter(t => {
+  const historyTransfers = filtered.filter(t => {
     if (t.status === 'pending') return false;
-    if (storeId && t.fromStoreId !== storeId && t.toStoreId !== storeId && !hasPermission(['admin'])) return false;
+    if (storeId && !isAdmin && t.fromStoreId !== storeId && t.toStoreId !== storeId) return false;
     return true;
   });
 
@@ -95,32 +124,104 @@ export default function Transfer() {
     >
       <Card>
         <Card.Header className="py-3">
-          <div className="flex items-center gap-6">
-            <button
-              onClick={() => setActiveTab('pending')}
-              className={`text-sm font-medium pb-1 border-b-2 transition-colors ${
-                activeTab === 'pending'
-                  ? 'text-teal-600 border-teal-600'
-                  : 'text-gray-500 border-transparent hover:text-gray-700'
-              }`}
-            >
-              待审批
-              {pendingTransfers.length > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-red-500 text-white rounded-full">
-                  {pendingTransfers.length}
-                </span>
+          <div className="space-y-3">
+            <div className="flex items-center gap-6">
+              <button
+                onClick={() => setActiveTab('pending')}
+                className={`text-sm font-medium pb-1 border-b-2 transition-colors ${
+                  activeTab === 'pending'
+                    ? 'text-teal-600 border-teal-600'
+                    : 'text-gray-500 border-transparent hover:text-gray-700'
+                }`}
+              >
+                待审批
+                {pendingTransfers.length > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-red-500 text-white rounded-full">
+                    {pendingTransfers.length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('history')}
+                className={`text-sm font-medium pb-1 border-b-2 transition-colors ${
+                  activeTab === 'history'
+                    ? 'text-teal-600 border-teal-600'
+                    : 'text-gray-500 border-transparent hover:text-gray-700'
+                }`}
+              >
+                转派历史
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100">
+              <Filter size={14} className="text-gray-400" />
+              <div className="text-xs text-gray-500 mr-2">筛选：</div>
+
+              {isAdmin && (
+                <select
+                  value={filterStoreId}
+                  onChange={e => setFilterStoreId(e.target.value)}
+                  className="h-8 px-2 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+                >
+                  <option value="">全部门店</option>
+                  {stores.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
               )}
-            </button>
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`text-sm font-medium pb-1 border-b-2 transition-colors ${
-                activeTab === 'history'
-                  ? 'text-teal-600 border-teal-600'
-                  : 'text-gray-500 border-transparent hover:text-gray-700'
-              }`}
-            >
-              转派历史
-            </button>
+
+              <select
+                value={filterAction}
+                onChange={e => setFilterAction(e.target.value as TransferActionType | '')}
+                className="h-8 px-2 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+              >
+                <option value="">全部操作</option>
+                <option value="apply">申请</option>
+                <option value="approve">通过</option>
+                <option value="reject">驳回</option>
+                <option value="reapply">重新发起</option>
+                <option value="export">导出</option>
+              </select>
+
+              <div className="relative">
+                <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="操作人"
+                  value={filterOperator}
+                  onChange={e => setFilterOperator(e.target.value)}
+                  className="h-8 pl-7 pr-3 w-28 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+                />
+              </div>
+
+              <input
+                type="date"
+                value={filterStartDate}
+                onChange={e => setFilterStartDate(e.target.value)}
+                className="h-8 px-2 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+              />
+              <span className="text-xs text-gray-400">至</span>
+              <input
+                type="date"
+                value={filterEndDate}
+                onChange={e => setFilterEndDate(e.target.value)}
+                className="h-8 px-2 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+              />
+
+              {(filterStoreId || filterOperator || filterStartDate || filterEndDate || filterAction) && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs text-gray-500 hover:text-gray-700"
+                  onClick={() => {
+                    setFilterStoreId(''); setFilterOperator('');
+                    setFilterStartDate(''); setFilterEndDate(''); setFilterAction('');
+                  }}
+                >
+                  清除
+                </Button>
+              )}
+            </div>
           </div>
         </Card.Header>
         <Card.Body className="p-0">
@@ -266,6 +367,63 @@ export default function Transfer() {
                                   </div>
                                 </div>
                               )}
+                            </div>
+                          </div>
+
+                          <div className="mt-5 px-2">
+                            <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                              <HistoryIcon size={14} />
+                              操作时间线
+                            </div>
+                            <div className="relative pl-6 border-l-2 border-gray-200 space-y-4">
+                              {[...transfer.timeline].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()).map((evt, idx) => (
+                                <div key={evt.id} className="relative">
+                                  <div className={`absolute -left-[30px] top-0 w-5 h-5 rounded-full flex items-center justify-center ${
+                                    evt.action === 'apply' ? 'bg-teal-100 text-teal-600' :
+                                    evt.action === 'approve' ? 'bg-emerald-100 text-emerald-600' :
+                                    evt.action === 'reject' ? 'bg-red-100 text-red-600' :
+                                    evt.action === 'reapply' ? 'bg-amber-100 text-amber-600' :
+                                    'bg-gray-100 text-gray-600'
+                                  }`}>
+                                    {evt.action === 'apply' && <ArrowRightLeft size={11} />}
+                                    {evt.action === 'approve' && <Check size={11} />}
+                                    {evt.action === 'reject' && <X size={11} />}
+                                    {evt.action === 'reapply' && <ArrowRightLeft size={11} />}
+                                    {evt.action === 'export' && <FileText size={11} />}
+                                  </div>
+                                  <div className="bg-white rounded-md border border-gray-200 p-3">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className={`text-sm font-medium ${
+                                        evt.action === 'approve' ? 'text-emerald-700' :
+                                        evt.action === 'reject' ? 'text-red-700' :
+                                        'text-gray-800'
+                                      }`}>
+                                        {evt.actionLabel}
+                                      </span>
+                                      <span className="text-[11px] text-gray-400">
+                                        {formatDateTime(evt.timestamp)}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-xs text-gray-500 mb-1">
+                                      <span className="flex items-center gap-1">
+                                        <User size={11} />
+                                        {evt.operator}
+                                      </span>
+                                      {evt.storeName && (
+                                        <span className="flex items-center gap-1">
+                                          <Building2 size={11} />
+                                          {evt.storeName}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {evt.note && (
+                                      <p className="text-xs text-gray-600 bg-gray-50 p-2 rounded mt-1 border border-gray-100">
+                                        {evt.note}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
 
@@ -425,7 +583,7 @@ export default function Transfer() {
                             : 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
                         }`}
                       >
-                        <History size={20} className="text-teal-600 mb-2" />
+                        <HistoryIcon size={20} className="text-teal-600 mb-2" />
                         <div className="text-sm font-medium text-gray-900">转派记录明细</div>
                         <div className="text-[11px] text-gray-500 mt-0.5">含客户信息、申请原因等</div>
                         {recordsPermission.requireApproval && recordsPermission.canExport && (

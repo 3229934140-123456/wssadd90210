@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Card } from '@/components/common/Card';
 import { Table } from '@/components/common/Table';
@@ -18,11 +18,33 @@ import {
   GripVertical,
   ToggleLeft,
   ToggleRight,
+  Sparkles,
+  Search,
+  Building2,
+  BarChart3,
+  CheckCircle,
+  Eye,
+  Layers,
+  TrendingUp,
 } from 'lucide-react';
-import type { Rule } from '@/types';
+import type { Rule, Store } from '@/types';
+
+const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
+const getSaturationScore = (rate: number) => {
+  if (rate < 40) return { label: '低', color: 'emerald', value: rate };
+  if (rate < 70) return { label: '中', color: 'amber', value: rate };
+  return { label: '高', color: 'red', value: rate };
+};
 
 export default function Rules() {
-  const { rules, addRule, updateRule, deleteRule } = useRuleStore();
+  const { rules, addRule, updateRule, deleteRule, getRuleByCityAndProject } = useRuleStore();
   const { stores } = useStoreStore();
   const [activeTab, setActiveTab] = useState<'assignment' | 'transfer' | 'security'>('assignment');
   const [showModal, setShowModal] = useState(false);
@@ -35,6 +57,9 @@ export default function Rules() {
     requireApproval: false,
     responseTimeLimit: 30,
   });
+
+  const [simCity, setSimCity] = useState('北京');
+  const [simProject, setSimProject] = useState('光子嫩肤');
 
   const handleAdd = () => {
     setEditingRule(null);
@@ -78,6 +103,42 @@ export default function Rules() {
       deleteRule(id);
     }
   };
+
+  const simResult = useMemo(() => {
+    const rule = getRuleByCityAndProject(simCity, simProject);
+    const sameCityStores = stores.filter(s => s.city === simCity);
+    if (sameCityStores.length === 0) return [];
+
+    const centerLat = sameCityStores.reduce((s, x) => s + x.lat, 0) / sameCityStores.length;
+    const centerLng = sameCityStores.reduce((s, x) => s + x.lng, 0) / sameCityStores.length;
+
+    const mapped = sameCityStores.map(store => {
+      const distance = Math.max(0.1, Math.round(calculateDistance(centerLat, centerLng, store.lat, store.lng) * 10) / 10);
+      const saturation = (store.id === 's1' ? 64 : store.id === 's2' ? 70 : store.id === 's3' ? 75 : store.id === 's4' ? 67 : store.id === 's5' ? 69 : 84) as number;
+      const isDefault = rule?.defaultStoreId === store.id;
+      let score = 0;
+      const reasons: string[] = [];
+      if (isDefault) { score += 100; reasons.push('总部规则指定默认门店'); }
+      if (distance < 2) { score += 50; reasons.push('距离最近'); }
+      else if (distance < rule?.autoAssignRadius) { score += 30; reasons.push('在分配半径内'); }
+      if (saturation < 50) { score += 30; reasons.push('饱和度低承接能力强'); }
+      else if (saturation < 70) { score += 15; reasons.push('饱和度适中'); }
+      else { score += 0; reasons.push('饱和度较高'); }
+
+      return {
+        store,
+        distance,
+        saturation,
+        isDefault,
+        score,
+        reasons,
+      };
+    });
+
+    return mapped.sort((a, b) => b.score - a.score);
+  }, [simCity, simProject, stores, getRuleByCityAndProject]);
+
+  const matchedRule = getRuleByCityAndProject(simCity, simProject);
 
   return (
     <PageContainer
@@ -132,63 +193,194 @@ export default function Rules() {
         </Card.Header>
         <Card.Body>
           {activeTab === 'assignment' && (
-            <Table>
-              <Table.Header>
-                <Table.Row>
-                  <Table.Cell header>城市</Table.Cell>
-                  <Table.Cell header>项目</Table.Cell>
-                  <Table.Cell header>默认归属门店</Table.Cell>
-                  <Table.Cell header>自动分配半径</Table.Cell>
-                  <Table.Cell header>响应时限</Table.Cell>
-                  <Table.Cell header>转派需审批</Table.Cell>
-                  <Table.Cell header className="text-right">操作</Table.Cell>
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {rules.map(rule => (
-                  <Table.Row key={rule.id}>
-                    <Table.Cell>
-                      <div className="flex items-center gap-2">
-                        <MapPin size={14} className="text-teal-500" />
-                        <span className="text-sm font-medium text-gray-900">{rule.city}</span>
-                      </div>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <span className="text-sm text-gray-700">{rule.project}</span>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <span className="text-sm text-gray-700">{rule.defaultStoreName}</span>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <span className="text-sm text-gray-700">{rule.autoAssignRadius} 公里</span>
-                    </Table.Cell>
-                    <Table.Cell>
-                      <div className="flex items-center gap-1.5 text-sm">
-                        <Clock size={14} className="text-gray-400" />
-                        <span className="text-gray-700">{rule.responseTimeLimit} 分钟</span>
-                      </div>
-                    </Table.Cell>
-                    <Table.Cell>
-                      {rule.requireApproval ? (
-                        <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">是</span>
-                      ) : (
-                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">否</span>
-                      )}
-                    </Table.Cell>
-                    <Table.Cell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleEdit(rule)}>
-                          <Edit2 size={14} />
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-600" onClick={() => handleDelete(rule.id)}>
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>
-                    </Table.Cell>
+            <div className="space-y-6">
+              <Table>
+                <Table.Header>
+                  <Table.Row>
+                    <Table.Cell header>城市</Table.Cell>
+                    <Table.Cell header>项目</Table.Cell>
+                    <Table.Cell header>默认归属门店</Table.Cell>
+                    <Table.Cell header>自动分配半径</Table.Cell>
+                    <Table.Cell header>响应时限</Table.Cell>
+                    <Table.Cell header>转派需审批</Table.Cell>
+                    <Table.Cell header className="text-right">操作</Table.Cell>
                   </Table.Row>
-                ))}
-              </Table.Body>
-            </Table>
+                </Table.Header>
+                <Table.Body>
+                  {rules.map(rule => (
+                    <Table.Row key={rule.id}>
+                      <Table.Cell>
+                        <div className="flex items-center gap-2">
+                          <MapPin size={14} className="text-teal-500" />
+                          <span className="text-sm font-medium text-gray-900">{rule.city}</span>
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <span className="text-sm text-gray-700">{rule.project}</span>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <span className="text-sm text-gray-700">{rule.defaultStoreName}</span>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <span className="text-sm text-gray-700">{rule.autoAssignRadius} 公里</span>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <div className="flex items-center gap-1.5 text-sm">
+                          <Clock size={14} className="text-gray-400" />
+                          <span className="text-gray-700">{rule.responseTimeLimit} 分钟</span>
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell>
+                        {rule.requireApproval ? (
+                          <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">是</span>
+                        ) : (
+                          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">否</span>
+                        )}
+                      </Table.Cell>
+                      <Table.Cell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleEdit(rule)}>
+                            <Edit2 size={14} />
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-600" onClick={() => handleDelete(rule.id)}>
+                            <Trash2 size={14} />
+                          </Button>
+                        </div>
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
+
+              <div className="border-t border-gray-100 pt-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-400 to-cyan-500 flex items-center justify-center">
+                    <Sparkles size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900">智能推荐规则试算</h3>
+                    <p className="text-xs text-gray-500">选择城市和项目，预览各门店得分与排序，修改规则后即时刷新无需刷新页面</p>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">顾客城市</label>
+                      <select
+                        value={simCity}
+                        onChange={e => setSimCity(e.target.value)}
+                        className="h-9 px-3 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+                      >
+                        {cities.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">意向项目</label>
+                      <select
+                        value={simProject}
+                        onChange={e => setSimProject(e.target.value)}
+                        className="h-9 px-3 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+                      >
+                        {projects.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex-1 flex items-end">
+                      {matchedRule ? (
+                        <div className="flex items-center gap-2 text-xs bg-teal-50 border border-teal-200 rounded-md px-3 py-2">
+                          <CheckCircle size={14} className="text-teal-600" />
+                          <span className="text-teal-800">
+                            命中规则：
+                            <span className="font-medium">{matchedRule.defaultStoreName}</span>
+                            为默认门店
+                            <span className="mx-1.5 text-teal-500">·</span>
+                            分配半径 {matchedRule.autoAssignRadius}km
+                            <span className="mx-1.5 text-teal-500">·</span>
+                            响应 {matchedRule.responseTimeLimit}分钟
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                          <Eye size={14} className="text-amber-600" />
+                          <span className="text-amber-800">
+                            该城市/项目未配置规则，将按距离和饱和度推荐
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {simResult.length === 0 ? (
+                  <div className="py-10 text-center text-gray-400 text-sm">
+                    {simCity}暂无门店
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {simResult.map((item, idx) => {
+                      const sat = getSaturationScore(item.saturation);
+                      return (
+                        <div
+                          key={item.store.id}
+                          className={`flex items-center gap-4 p-3 rounded-lg border ${
+                            idx === 0
+                              ? 'border-teal-300 bg-teal-50/60'
+                              : 'border-gray-200 bg-white'
+                          }`}
+                        >
+                          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${
+                            idx === 0
+                              ? 'bg-teal-600 text-white'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {idx + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-900">{item.store.name}</span>
+                              {item.isDefault && (
+                                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-teal-600 text-white rounded">
+                                  默认门店
+                                </span>
+                              )}
+                              {idx === 0 && !item.isDefault && (
+                                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500 text-white rounded">
+                                  推荐
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <MapPin size={11} />
+                                距离 {item.distance} km
+                              </span>
+                              <span className={`flex items-center gap-1 ${
+                                sat.color === 'emerald' ? 'text-emerald-600' :
+                                sat.color === 'amber' ? 'text-amber-600' : 'text-red-600'
+                              }`}>
+                                <Layers size={11} />
+                                饱和度 {item.saturation}%（{sat.label}）
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <TrendingUp size={11} />
+                                综合得分 {item.score}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {item.reasons.map(r => (
+                                <span key={r} className="px-1.5 py-0.5 text-[10px] bg-gray-100 text-gray-600 rounded">
+                                  {r}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {activeTab === 'transfer' && (

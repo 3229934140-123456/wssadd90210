@@ -13,6 +13,7 @@ import DuplicateCustomer from '@/pages/DuplicateCustomer';
 import Reports from '@/pages/Reports';
 import Rules from '@/pages/Rules';
 import StoreManagement from '@/pages/StoreManagement';
+import ExportHistory from '@/pages/ExportHistory';
 import { ReactNode } from 'react';
 
 interface ProtectedRouteProps {
@@ -79,6 +80,11 @@ function AppLayout() {
             <Route path="/reports" element={
               <ProtectedRoute roles={['admin', 'storeManager']}>
                 <Reports />
+              </ProtectedRoute>
+            } />
+            <Route path="/exports" element={
+              <ProtectedRoute roles={['admin', 'storeManager']}>
+                <ExportHistory />
               </ProtectedRoute>
             } />
             <Route path="/rules" element={

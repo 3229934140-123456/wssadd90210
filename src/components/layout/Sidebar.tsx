@@ -10,6 +10,7 @@ import {
   Settings,
   LogOut,
   Sparkles,
+  FileDown,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { cn } from '@/utils/format';
@@ -21,6 +22,7 @@ const menuItems = [
   { path: '/schedule', label: '预约排班', icon: CalendarDays, roles: ['admin', 'scheduler', 'storeManager'] },
   { path: '/duplicate', label: '重复客户识别', icon: Users, roles: ['admin'] },
   { path: '/reports', label: '经营报表', icon: BarChart3, roles: ['admin', 'storeManager'] },
+  { path: '/exports', label: '导出申请中心', icon: FileDown, roles: ['admin', 'storeManager'] },
   { path: '/rules', label: '总部规则', icon: Settings, roles: ['admin'] },
   { path: '/stores', label: '门店管理', icon: Building2, roles: ['admin'] },
 ];
