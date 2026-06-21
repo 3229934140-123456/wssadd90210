@@ -4,11 +4,15 @@ import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { StatusTag } from '@/components/common/StatusTag';
 import { Drawer } from '@/components/common/Drawer';
+import { Modal } from '@/components/common/Modal';
 import { useClueStore } from '@/store/useClueStore';
 import { useStoreStore } from '@/store/useStoreStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useAppointmentStore } from '@/store/useAppointmentStore';
+import { useTransferStore } from '@/store/useTransferStore';
 import { mockMessages, mockDoctors } from '@/mock';
 import { formatPhone, formatDateTime, timeAgo } from '@/utils/format';
+import type { AppointmentType, AppointmentTimeSlot } from '@/types';
 import {
   ArrowLeft,
   Phone,
@@ -24,6 +28,9 @@ import {
   ArrowRightLeft,
   CalendarCheck,
   AlertCircle,
+  Check,
+  X,
+  Store,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -31,10 +38,23 @@ export default function ClueDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { getClueById, acceptClue } = useClueStore();
-  const { getStoreById } = useStoreStore();
+  const { getStoreById, stores } = useStoreStore();
   const { user, hasPermission } = useAuthStore();
+  const { createAppointment } = useAppointmentStore();
+  const { createTransfer } = useTransferStore();
   const [showScheduleDrawer, setShowScheduleDrawer] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState<AppointmentTimeSlot | ''>('');
+  const [appointmentType, setAppointmentType] = useState<AppointmentType>('consult');
+  const [appointmentNotes, setAppointmentNotes] = useState('');
+
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferStoreId, setTransferStoreId] = useState('');
+  const [transferReason, setTransferReason] = useState('');
+
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const clue = getClueById(id || '');
   const store = clue ? getStoreById(clue.storeId) : null;
@@ -54,7 +74,7 @@ export default function ClueDetail() {
   }
 
   const canAccept = clue.status === 'pending' && hasPermission(['consultant', 'storeManager']);
-  const canTransfer = clue.status !== 'lost' && hasPermission(['consultant', 'storeManager']);
+  const canTransfer = clue.status !== 'lost' && clue.status !== 'transferring' && hasPermission(['consultant', 'storeManager']);
   const canSchedule = clue.status === 'accepted' && hasPermission(['scheduler', 'storeManager', 'admin']);
 
   const handleAccept = () => {
@@ -62,6 +82,64 @@ export default function ClueDetail() {
   };
 
   const availableDoctors = mockDoctors.filter(d => d.storeId === clue.storeId);
+
+  const timeSlots: AppointmentTimeSlot[] = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'];
+
+  const handleConfirmAppointment = () => {
+    if (!selectedDoctor) { alert('请选择医生'); return; }
+    if (!selectedDate) { alert('请选择预约日期'); return; }
+    if (!selectedTimeSlot) { alert('请选择预约时段'); return; }
+
+    const doctor = mockDoctors.find(d => d.id === selectedDoctor);
+    const appointment = createAppointment({
+      clueId: clue.id,
+      customerName: clue.customer.name,
+      customerPhone: clue.customer.phone,
+      storeId: clue.storeId,
+      doctorId: selectedDoctor,
+      doctorName: doctor?.name || '医生',
+      date: selectedDate,
+      timeSlot: selectedTimeSlot as AppointmentTimeSlot,
+      type: appointmentType,
+      notes: appointmentNotes || undefined,
+      designatedDoctor: clue.designatedDoctor,
+      designatedEquipment: clue.designatedEquipment,
+    }, user?.name || '排班员');
+
+    setSuccessMessage(`预约成功！${doctor?.name} 医生 ${selectedDate} ${selectedTimeSlot}`);
+    setShowScheduleDrawer(false);
+    setShowSuccessModal(true);
+
+    setSelectedDoctor('');
+    setSelectedDate('');
+    setSelectedTimeSlot('');
+    setAppointmentType('consult');
+    setAppointmentNotes('');
+  };
+
+  const handleConfirmTransfer = () => {
+    if (!transferStoreId || !transferReason) {
+      alert('请填写完整转派信息');
+      return;
+    }
+    const fromStore = getStoreById(clue.storeId);
+    const toStore = getStoreById(transferStoreId);
+    if (!fromStore || !toStore) return;
+
+    createTransfer({
+      clueId: clue.id,
+      clue,
+      fromStoreId: fromStore.id,
+      fromStoreName: fromStore.name,
+      toStoreId: toStore.id,
+      toStoreName: toStore.name,
+      reason: transferReason,
+    });
+
+    setSuccessMessage(`已申请转派至 ${toStore.name}，等待审批中`);
+    setShowTransferModal(false);
+    setShowSuccessModal(true);
+  };
 
   return (
     <PageContainer
@@ -79,7 +157,7 @@ export default function ClueDetail() {
             </Button>
           )}
           {canTransfer && (
-            <Button variant="outline" size="sm" onClick={() => {}}>
+            <Button variant="outline" size="sm" onClick={() => setShowTransferModal(true)}>
               <ArrowRightLeft size={14} className="mr-1" />
               申请转派
             </Button>
@@ -299,12 +377,32 @@ export default function ClueDetail() {
         isOpen={showScheduleDrawer}
         onClose={() => setShowScheduleDrawer(false)}
         title="预约到院"
-        width="w-[420px]"
+        width="w-[440px]"
       >
         <div className="p-5 space-y-5">
+          {(clue.designatedDoctor || clue.designatedEquipment) && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="text-sm font-medium text-amber-800 mb-1">客户有指定需求</div>
+              <div className="space-y-1">
+                {clue.designatedDoctor && (
+                  <div className="flex items-center gap-2 text-xs text-amber-700">
+                    <Stethoscope size={12} />
+                    指定医生：{clue.designatedDoctor}（已自动带入预约信息）
+                  </div>
+                )}
+                {clue.designatedEquipment && (
+                  <div className="flex items-center gap-2 text-xs text-amber-700">
+                    <Wrench size={12} />
+                    指定设备：{clue.designatedEquipment}（已自动带入预约信息）
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">选择医生</label>
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
               {availableDoctors.map(doctor => (
                 <button
                   key={doctor.id}
@@ -313,15 +411,29 @@ export default function ClueDetail() {
                     selectedDoctor === doctor.id
                       ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-500/20'
                       : 'border-gray-200 hover:border-gray-300'
+                  } ${
+                    clue.designatedDoctor && doctor.name.includes(clue.designatedDoctor)
+                      ? 'ring-2 ring-amber-300 border-amber-400'
+                      : ''
                   }`}
                 >
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-cyan-500 flex items-center justify-center text-white text-sm font-medium">
                     {doctor.name.charAt(0)}
                   </div>
                   <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-900">{doctor.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900">{doctor.name}</span>
+                      {clue.designatedDoctor && doctor.name.includes(clue.designatedDoctor) && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded border border-amber-200">
+                          指定
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-gray-500">{doctor.title} · {doctor.specialty}</div>
                   </div>
+                  {selectedDoctor === doctor.id && (
+                    <Check size={18} className="text-teal-600" />
+                  )}
                 </button>
               ))}
             </div>
@@ -331,6 +443,9 @@ export default function ClueDetail() {
             <label className="block text-sm font-medium text-gray-700 mb-2">预约日期</label>
             <input
               type="date"
+              value={selectedDate}
+              onChange={e => setSelectedDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
               className="w-full h-10 px-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
             />
           </div>
@@ -338,10 +453,15 @@ export default function ClueDetail() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">预约时段</label>
             <div className="grid grid-cols-4 gap-2">
-              {['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'].map(time => (
+              {timeSlots.map(time => (
                 <button
                   key={time}
-                  className="py-2 text-xs border border-gray-200 rounded-md hover:border-teal-500 hover:text-teal-600 transition-colors"
+                  onClick={() => setSelectedTimeSlot(time)}
+                  className={`py-2 text-xs border rounded-md transition-colors ${
+                    selectedTimeSlot === time
+                      ? 'bg-teal-600 text-white border-teal-600'
+                      : 'border-gray-200 hover:border-teal-500 hover:text-teal-600'
+                  }`}
                 >
                   {time}
                 </button>
@@ -351,30 +471,106 @@ export default function ClueDetail() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">预约类型</label>
-            <select className="w-full h-10 px-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 bg-white">
-              <option>到院咨询</option>
-              <option>治疗预约</option>
-              <option>手术预约</option>
-              <option>复查</option>
+            <select
+              value={appointmentType}
+              onChange={e => setAppointmentType(e.target.value as AppointmentType)}
+              className="w-full h-10 px-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 bg-white"
+            >
+              <option value="consult">到院咨询</option>
+              <option value="treatment">治疗预约</option>
+              <option value="surgery">手术预约</option>
+              <option value="review">复查</option>
             </select>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">备注</label>
             <textarea
+              value={appointmentNotes}
+              onChange={e => setAppointmentNotes(e.target.value)}
               rows={3}
               placeholder="请输入预约备注..."
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 resize-none"
             />
           </div>
 
-          <div className="pt-4 border-t border-gray-100">
-            <Button className="w-full" onClick={() => setShowScheduleDrawer(false)}>
+          <div className="pt-4 border-t border-gray-100 space-y-2">
+            <Button className="w-full" onClick={handleConfirmAppointment}>
+              <CalendarCheck size={16} className="mr-1.5" />
               确认预约
+            </Button>
+            <Button variant="outline" className="w-full" onClick={() => setShowScheduleDrawer(false)}>
+              取消
             </Button>
           </div>
         </div>
       </Drawer>
+
+      <Modal
+        isOpen={showTransferModal}
+        onClose={() => setShowTransferModal(false)}
+        title="申请转派"
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowTransferModal(false)}>取消</Button>
+            <Button onClick={handleConfirmTransfer}>确认转派</Button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">转派至门店</label>
+            <select
+              value={transferStoreId}
+              onChange={e => setTransferStoreId(e.target.value)}
+              className="w-full h-10 px-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 bg-white"
+            >
+              <option value="">请选择目标门店</option>
+              {stores
+                .filter(s => s.id !== clue.storeId)
+                .map(store => (
+                  <option key={store.id} value={store.id}>
+                    {store.name} - {store.city}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">转派原因</label>
+            <textarea
+              value={transferReason}
+              onChange={e => setTransferReason(e.target.value)}
+              rows={3}
+              placeholder="请输入转派原因..."
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 resize-none"
+            />
+          </div>
+
+          <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-700">
+            <Store size={16} className="inline mr-2" />
+            提交后聊天摘要、顾客偏好、指定医生/设备将自动同步至目标门店
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        title="操作成功"
+        size="sm"
+        footer={
+          <Button onClick={() => setShowSuccessModal(false)}>确定</Button>
+        }
+      >
+        <div className="flex items-center gap-3 py-3">
+          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+            <Check size={24} className="text-emerald-600" />
+          </div>
+          <p className="text-sm text-gray-700">{successMessage}</p>
+        </div>
+      </Modal>
     </PageContainer>
   );
 }

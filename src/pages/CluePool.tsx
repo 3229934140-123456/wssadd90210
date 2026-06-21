@@ -4,6 +4,7 @@ import { ClueCard } from '@/components/business/ClueCard';
 import { Button } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
 import { Modal } from '@/components/common/Modal';
+import { StatusTag } from '@/components/common/StatusTag';
 import {
   Filter,
   RefreshCw,
@@ -11,12 +12,19 @@ import {
   ArrowRightLeft,
   Search,
   Star,
+  Stethoscope,
+  Wrench,
+  MessageSquare,
+  Sparkles,
+  X,
 } from 'lucide-react';
 import { useClueStore } from '@/store/useClueStore';
 import { useStoreStore } from '@/store/useStoreStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useTransferStore } from '@/store/useTransferStore';
+import { useRuleStore } from '@/store/useRuleStore';
 import { projects } from '@/mock';
-import type { ClueStatus, IntentionLevel } from '@/types';
+import type { ClueStatus, IntentionLevel, Clue } from '@/types';
 
 const statusOptions: { value: ClueStatus | ''; label: string }[] = [
   { value: '', label: '全部状态' },
@@ -34,14 +42,29 @@ const intentionOptions: { value: IntentionLevel | ''; label: string }[] = [
   { value: 'low', label: '低意向' },
 ];
 
+interface RecommendedStore {
+  id: string;
+  name: string;
+  city: string;
+  distance: number;
+  saturation: number;
+  reason: string;
+  isDefault: boolean;
+}
+
 export default function CluePool() {
-  const { getFilteredClues, acceptClue, setFilters, filters, getPendingCount } = useClueStore();
-  const { stores, getStoreById } = useStoreStore();
+  const { getFilteredClues, acceptClue, setFilters, filters, getPendingCount, getClueById, updateClue } = useClueStore();
+  const { stores, getStoreById, getStoreSaturation } = useStoreStore();
   const { user, hasPermission } = useAuthStore();
+  const { createTransfer } = useTransferStore();
+  const { getRuleByCityAndProject } = useRuleStore();
+
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [selectedClueId, setSelectedClueId] = useState('');
   const [transferStoreId, setTransferStoreId] = useState('');
   const [transferReason, setTransferReason] = useState('');
+  const [showRecommendModal, setShowRecommendModal] = useState(false);
+  const [recommendedStores, setRecommendedStores] = useState<RecommendedStore[]>([]);
 
   const storeId = user?.storeId;
   const isAdmin = hasPermission(['admin']);
@@ -57,15 +80,108 @@ export default function CluePool() {
 
   const handleTransfer = (clueId: string) => {
     setSelectedClueId(clueId);
+    setTransferStoreId('');
+    setTransferReason('');
     setShowTransferModal(true);
   };
 
   const handleConfirmTransfer = () => {
-    if (!selectedClueId || !transferStoreId || !transferReason) return;
+    if (!selectedClueId || !transferStoreId || !transferReason) {
+      alert('请填写完整转派信息');
+      return;
+    }
+    const clue = getClueById(selectedClueId);
+    const fromStore = getStoreById(clue?.storeId || '');
+    const toStore = getStoreById(transferStoreId);
+    if (!clue || !fromStore || !toStore) return;
+
+    createTransfer({
+      clueId: clue.id,
+      clue,
+      fromStoreId: fromStore.id,
+      fromStoreName: fromStore.name,
+      toStoreId: toStore.id,
+      toStoreName: toStore.name,
+      reason: transferReason,
+    });
+
     setShowTransferModal(false);
     setTransferStoreId('');
     setTransferReason('');
   };
+
+  const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c * 10) / 10;
+  };
+
+  const handleSmartRecommend = () => {
+    const pendingClues = displayClues.filter(c => c.status === 'pending');
+    if (pendingClues.length === 0) {
+      alert('暂无待承接线索可推荐');
+      return;
+    }
+
+    const allRecommendations: RecommendedStore[] = [];
+
+    pendingClues.slice(0, 1).forEach(clue => {
+      const rule = getRuleByCityAndProject(clue.customer.city, clue.project);
+      const radius = rule?.autoAssignRadius || 10;
+
+      stores.forEach(store => {
+        if (store.city !== clue.customer.city) return;
+        const distance = calculateDistance(0, 0, 0, 0) + Math.random() * radius;
+        const saturation = getStoreSaturation(store.id);
+
+        let reason = '';
+        if (rule && store.id === rule.defaultStoreId) {
+          reason = '规则指定默认门店';
+        } else if (distance < 3) {
+          reason = '距离最近';
+        } else if (saturation < 50) {
+          reason = '门店饱和度低，承接能力强';
+        } else {
+          reason = '同城市门店';
+        }
+
+        allRecommendations.push({
+          id: store.id,
+          name: store.name,
+          city: store.city,
+          distance: Math.round(distance * 10) / 10,
+          saturation,
+          reason,
+          isDefault: rule?.defaultStoreId === store.id,
+        });
+      });
+    });
+
+    const sorted = allRecommendations
+      .sort((a, b) => {
+        if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1;
+        if (a.distance !== b.distance) return a.distance - b.distance;
+        return a.saturation - b.saturation;
+      })
+      .slice(0, 5);
+
+    setRecommendedStores(sorted);
+    setShowRecommendModal(true);
+
+    pendingClues.slice(0, 3).forEach(clue => {
+      const bestMatch = sorted[0];
+      if (bestMatch && bestMatch.isDefault) {
+        updateClue(clue.id, { isRecommended: true });
+      }
+    });
+  };
+
+  const selectedClue = selectedClueId ? getClueById(selectedClueId) : null;
 
   return (
     <PageContainer
@@ -77,8 +193,8 @@ export default function CluePool() {
             <RefreshCw size={14} className="mr-1" />
             刷新
           </Button>
-          <Button size="sm">
-            <Star size={14} className="mr-1" />
+          <Button size="sm" onClick={handleSmartRecommend}>
+            <Sparkles size={14} className="mr-1" />
             智能推荐
           </Button>
         </div>
@@ -158,7 +274,7 @@ export default function CluePool() {
               clue={clue}
               storeName={isAdmin ? getStoreById(clue.storeId)?.name : undefined}
               onAccept={clue.status === 'pending' ? handleAccept : undefined}
-              onTransfer={clue.status !== 'lost' ? handleTransfer : undefined}
+              onTransfer={clue.status !== 'lost' && clue.status !== 'transferring' ? handleTransfer : undefined}
             />
           ))}
         </div>
@@ -175,7 +291,7 @@ export default function CluePool() {
         isOpen={showTransferModal}
         onClose={() => setShowTransferModal(false)}
         title="申请转派"
-        size="md"
+        size="lg"
         footer={
           <>
             <Button variant="outline" onClick={() => setShowTransferModal(false)}>取消</Button>
@@ -183,36 +299,164 @@ export default function CluePool() {
           </>
         }
       >
-        <div className="space-y-4">
+        <div className="space-y-5">
+          {selectedClue && (
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <h4 className="text-sm font-medium text-gray-900 mb-3">线索信息</h4>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-gray-500">客户：</span>
+                  <span className="text-gray-900 font-medium">{selectedClue.customer.name}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">项目：</span>
+                  <span className="text-gray-900 font-medium">{selectedClue.project}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">城市：</span>
+                  <span className="text-gray-900">{selectedClue.customer.city}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">意向：</span>
+                  <StatusTag status={selectedClue.intentionLevel} />
+                </div>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                <div className="flex items-start gap-2 text-sm">
+                  <MessageSquare size={14} className="text-teal-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="text-gray-500">聊天摘要：</span>
+                    <span className="text-gray-700">{selectedClue.chatSummary}</span>
+                  </div>
+                </div>
+                {selectedClue.preferences.length > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <Star size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div className="flex flex-wrap gap-1">
+                      {selectedClue.preferences.map(p => (
+                        <span key={p} className="px-2 py-0.5 text-xs bg-teal-50 text-teal-700 rounded-full border border-teal-200">
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {selectedClue.designatedDoctor && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Stethoscope size={14} className="text-amber-500" />
+                    <span className="text-gray-500">指定医生：</span>
+                    <span className="text-amber-700 font-medium">{selectedClue.designatedDoctor}</span>
+                  </div>
+                )}
+                {selectedClue.designatedEquipment && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Wrench size={14} className="text-amber-500" />
+                    <span className="text-gray-500">指定设备：</span>
+                    <span className="text-amber-700 font-medium">{selectedClue.designatedEquipment}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">转派至门店</label>
             <select
               value={transferStoreId}
               onChange={e => setTransferStoreId(e.target.value)}
-              className="w-full h-10 px-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+              className="w-full h-10 px-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 bg-white"
             >
               <option value="">请选择目标门店</option>
-              {stores.filter(s => s.id !== storeId).map(store => (
-                <option key={store.id} value={store.id}>
-                  {store.name} - {store.city}
-                </option>
-              ))}
+              {stores
+                .filter(s => s.id !== selectedClue?.storeId)
+                .map(store => (
+                  <option key={store.id} value={store.id}>
+                    {store.name} - {store.city} (饱和度: {getStoreSaturation(store.id)}%)
+                  </option>
+                ))}
             </select>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">转派原因</label>
             <textarea
               value={transferReason}
               onChange={e => setTransferReason(e.target.value)}
-              rows={4}
-              placeholder="请输入转派原因..."
+              rows={3}
+              placeholder="请输入转派原因，例如：客户居住地距离目标门店更近、本店承接饱和等..."
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 resize-none"
             />
           </div>
-          <div className="p-3 bg-amber-50 rounded-md text-sm text-amber-700">
-            <ArrowRightLeft size={16} className="inline mr-2" />
-            转派时会自动同步聊天摘要和顾客偏好信息
+
+          <div className="p-3 bg-amber-50 rounded-md text-sm text-amber-700 border border-amber-200">
+            <div className="flex items-start gap-2">
+              <ArrowRightLeft size={16} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">转派说明</p>
+                <ul className="mt-1 text-xs text-amber-600 space-y-0.5">
+                  <li>• 提交后线索状态将变为"转派中"</li>
+                  <li>• 聊天摘要、顾客偏好、指定医生/设备将自动同步</li>
+                  <li>• 转派需经店长或总部审批后生效</li>
+                </ul>
+              </div>
+            </div>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showRecommendModal}
+        onClose={() => setShowRecommendModal(false)}
+        title="智能推荐结果"
+        size="lg"
+        footer={
+          <Button onClick={() => setShowRecommendModal(false)}>知道了</Button>
+        }
+      >
+        <div className="space-y-3">
+          <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-700">
+            <Sparkles size={16} className="inline mr-2" />
+            根据总部规则、门店距离和饱和度推荐以下门店：
+          </div>
+
+          {recommendedStores.map((store, index) => (
+            <div key={store.id} className="p-4 border border-gray-200 rounded-lg hover:border-teal-300 transition-colors">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                    index === 0 ? 'bg-teal-600 text-white' :
+                    index === 1 ? 'bg-teal-500 text-white' :
+                    index === 2 ? 'bg-teal-400 text-white' :
+                    'bg-gray-200 text-gray-600'
+                  }`}>
+                    {index + 1}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-medium text-gray-900">{store.name}</h4>
+                      {store.isDefault && (
+                        <span className="px-1.5 py-0.5 text-[10px] bg-amber-100 text-amber-700 rounded border border-amber-200">
+                          规则指定
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">{store.city} · {store.reason}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-medium text-gray-900">{store.distance} km</div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    饱和度 <span className={
+                      store.saturation > 80 ? 'text-red-500' :
+                      store.saturation > 60 ? 'text-amber-500' :
+                      'text-emerald-500'
+                    }>{store.saturation}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </Modal>
     </PageContainer>

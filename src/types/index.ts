@@ -89,21 +89,28 @@ export interface Doctor {
   avatar?: string;
 }
 
-export type AppointmentStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled';
+export type AppointmentType = 'consult' | 'treatment' | 'surgery' | 'review';
+export type AppointmentTimeSlot = '09:00' | '10:00' | '11:00' | '14:00' | '15:00' | '16:00' | '17:00';
+export type AppointmentStatus = 'scheduled' | 'completed' | 'cancelled';
 
 export interface Appointment {
   id: string;
   clueId: string;
   customerName: string;
+  customerPhone: string;
   doctorId: string;
   doctorName: string;
   storeId: string;
-  appointmentTime: string;
-  type: string;
+  date: string;
+  timeSlot: AppointmentTimeSlot;
+  type: AppointmentType;
   status: AppointmentStatus;
-  notes: string;
+  notes?: string;
+  designatedDoctor?: string;
   designatedEquipment?: string;
+  createdBy: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Rule {
@@ -154,4 +161,22 @@ export interface Message {
   senderType: 'customer' | 'consultant';
   content: string;
   timestamp: string;
+}
+
+export type ExportType = 'reports' | 'clues' | 'customers';
+export type ExportStatus = 'pending' | 'approved' | 'rejected';
+
+export interface ExportRequest {
+  id: string;
+  type: ExportType;
+  reason: string;
+  requesterName: string;
+  requesterRole: string;
+  storeId?: string;
+  status: ExportStatus;
+  approver?: string;
+  approvedAt?: string;
+  rejectReason?: string;
+  createdAt: string;
+  approved: boolean;
 }

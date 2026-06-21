@@ -4,8 +4,12 @@ import { Card } from '@/components/common/Card';
 import { Table } from '@/components/common/Table';
 import { Button } from '@/components/common/Button';
 import { StatusTag } from '@/components/common/StatusTag';
+import { Modal } from '@/components/common/Modal';
 import { mockStorePerformance, mockDailyStats, mockAlerts } from '@/mock';
 import { useStoreStore } from '@/store/useStoreStore';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useExportStore } from '@/store/useExportStore';
+import type { ExportType } from '@/types';
 import {
   BarChart3,
   Download,
@@ -16,6 +20,10 @@ import {
   MapPin,
   AlertTriangle,
   Filter,
+  Shield,
+  Check,
+  FileText,
+  Lock,
 } from 'lucide-react';
 import {
   BarChart,
@@ -37,8 +45,14 @@ const COLORS = ['#0f766e', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 
 export default function Reports() {
   const { stores } = useStoreStore();
+  const { user } = useAuthStore();
+  const { canExport, requestExport, pendingRequests } = useExportStore();
   const [dateRange, setDateRange] = useState('week');
   const [selectedCity, setSelectedCity] = useState('');
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [exportReason, setExportReason] = useState('');
 
   const cityData = stores.reduce((acc, store) => {
     const existing = acc.find(item => item.city === store.city);
@@ -60,9 +74,14 @@ export default function Reports() {
             <Filter size={14} className="mr-1" />
             筛选
           </Button>
-          <Button size="sm">
+          <Button size="sm" onClick={() => setShowExportModal(true)}>
             <Download size={14} className="mr-1" />
             导出报表
+            {pendingRequests.length > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-amber-500 text-white rounded-full">
+                {pendingRequests.length}
+              </span>
+            )}
           </Button>
         </div>
       }
@@ -380,6 +399,140 @@ export default function Reports() {
           </Card.Body>
         </Card>
       </div>
+
+      <Modal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        title="导出经营报表"
+        size="md"
+      >
+        {(() => {
+          const reportsPermission = canExport('reports', user?.role);
+          const cluesPermission = canExport('clues', user?.role);
+          const customersPermission = canExport('customers', user?.role);
+
+          const handleExport = (type: ExportType, perm: { canExport: boolean; requireApproval: boolean; reason: string }) => {
+            if (!perm.canExport) {
+              alert(perm.reason);
+              return;
+            }
+            if (perm.requireApproval && !exportReason.trim()) {
+              alert('请填写导出原因');
+              return;
+            }
+            const result = requestExport({
+              type,
+              reason: exportReason,
+              requesterName: user?.name || '用户',
+              requesterRole: user?.role || 'consultant',
+              storeId: user?.storeId,
+            });
+            if (result.approved) {
+              setSuccessMessage('导出成功！已按数据安全规范对敏感字段进行脱敏处理');
+            } else {
+              setSuccessMessage('已提交导出申请，等待总部审批');
+            }
+            setShowExportModal(false);
+            setShowSuccessModal(true);
+            setExportReason('');
+          };
+
+          return (
+            <div className="space-y-4">
+              <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg flex items-start gap-2">
+                <Shield size={18} className="text-teal-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-teal-700">
+                  <p className="font-medium">数据安全提示</p>
+                  <p className="mt-0.5">涉及客户手机号、聊天内容等敏感信息时，系统将自动脱敏或需审批后导出</p>
+                </div>
+              </div>
+
+              {!reportsPermission.canExport && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600 flex items-center gap-2">
+                  <Lock size={14} />
+                  {reportsPermission.reason}
+                </div>
+              )}
+
+              {reportsPermission.canExport && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">导出类型</label>
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { type: 'reports' as ExportType, label: '经营报表', icon: BarChart3, perm: reportsPermission, desc: '统计数据' },
+                        { type: 'clues' as ExportType, label: '线索明细', icon: FileText, perm: cluesPermission, desc: '含客户信息' },
+                        { type: 'customers' as ExportType, label: '客户档案', icon: Shield, perm: customersPermission, desc: '高敏感数据' },
+                      ].map(item => (
+                        <button
+                          key={item.type}
+                          onClick={() => handleExport(item.type, item.perm)}
+                          disabled={!item.perm.canExport}
+                          className={`p-4 rounded-lg border text-left transition-all ${
+                            item.perm.canExport
+                              ? 'border-gray-200 hover:border-teal-400 hover:bg-teal-50/50'
+                              : 'border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed'
+                          }`}
+                        >
+                          <item.icon size={20} className="text-teal-600 mb-2" />
+                          <div className="text-sm font-medium text-gray-900">{item.label}</div>
+                          <div className="text-[11px] text-gray-500 mt-0.5">{item.desc}</div>
+                          {item.perm.requireApproval && item.perm.canExport && (
+                            <div className="mt-2 flex items-center gap-1 text-[10px] text-amber-600">
+                              <Lock size={10} />
+                              需审批
+                            </div>
+                          )}
+                          {!item.perm.canExport && (
+                            <div className="mt-2 flex items-center gap-1 text-[10px] text-red-500">
+                              <Lock size={10} />
+                              无权限
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {(reportsPermission.requireApproval || cluesPermission.requireApproval) && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">导出原因（申请必填）</label>
+                      <textarea
+                        value={exportReason}
+                        onChange={e => setExportReason(e.target.value)}
+                        rows={3}
+                        placeholder="请详细说明导出用途和使用范围..."
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 resize-none"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                <Button variant="outline" onClick={() => setShowExportModal(false)}>取消</Button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      <Modal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        title="操作成功"
+        size="sm"
+        footer={
+          <Button onClick={() => setShowSuccessModal(false)}>确定</Button>
+        }
+      >
+        <div className="flex items-center gap-3 py-3">
+          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+            <Check size={24} className="text-emerald-600" />
+          </div>
+          <p className="text-sm text-gray-700">{successMessage}</p>
+        </div>
+      </Modal>
     </PageContainer>
   );
 }
